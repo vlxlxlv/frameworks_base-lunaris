@@ -29,14 +29,12 @@ import android.content.res.Resources;
 import android.content.res.Resources.NotFoundException;
 import android.content.res.Resources.Theme;
 import android.content.res.XmlResourceParser;
-import android.os.UserHandle;
-import android.provider.Settings;
 import android.os.SystemClock;
+import android.os.SystemProperties;
 import android.ravenwood.annotation.RavenwoodIgnore;
 import android.ravenwood.annotation.RavenwoodKeepPartialClass;
 import android.util.AttributeSet;
 import android.util.DisplayMetrics;
-import android.util.PathParser;
 import android.util.TimeUtils;
 import android.util.Xml;
 import android.view.animation.Interpolator;
@@ -48,19 +46,6 @@ import org.xmlpull.v1.XmlPullParser;
 import org.xmlpull.v1.XmlPullParserException;
 
 import java.io.IOException;
-
-/**
- * Defines a custom Interpolator for some animations.
- *
- */
-
-class OutExpoInterpolator implements Interpolator {
-    @Override
-    public float getInterpolation(float t) {
-        return (t == 1.0f) ? 1.0f : 1 - (float)Math.pow(2, -10 * t);
-    }
-}
-
 
 /**
  * Defines common utilities for working with animations.
@@ -77,12 +62,9 @@ public class AnimationUtils {
     private static final int TOGETHER = 0;
     private static final int SEQUENTIALLY = 1;
 
-    private static Animation activityOpenEnterAnim;
-    private static Animation activityOpenExitAnim;
-    private static Animation activityCloseEnterAnim;
-    private static Animation activityCloseExitAnim;
-    private static int lastAnimStyle = -1;
-
+    /** @hide **/
+    public static final boolean sPerfAnimEnabled = SystemProperties.getBoolean(
+            "persist.sys.activity_anim_perf_override", true);
     private static boolean sExpectedPresentationTimeFlagValue;
     static {
         sExpectedPresentationTimeFlagValue = expectedPresentationTimeReadOnly();
@@ -252,271 +234,37 @@ public class AnimationUtils {
     public static Animation loadAnimation(Context context, @AnimRes int id)
             throws NotFoundException {
 
-        switch (id) {
-            case R.anim.activity_open_enter:
-            case R.anim.activity_open_exit:
-            case R.anim.activity_close_enter:
-            case R.anim.activity_close_exit:
-            case R.anim.task_open_enter:
-            case R.anim.task_open_exit:
-            case R.anim.activity_translucent_open_enter:
-            case R.anim.activity_translucent_close_exit:
-            case R.anim.app_starting_exit:
-                break;
-            default:
-                return loadAnimationFromXml(context, id);
-        }
-
-        int animStyle = Settings.System.getInt(
-                context.getContentResolver(),
-                "system_animation_style", 0);
-        if (animStyle != lastAnimStyle) {
-            clearCachedAnimations();
-            lastAnimStyle = animStyle;
-        }
-        if (animStyle >= 1 && animStyle <= 4) {
+        if (sPerfAnimEnabled) {
             switch (id) {
                 case R.anim.activity_open_enter:
-                    return animStyle == 4
-                            ? ActivityAnimations.getOpenEnter()
-                            : getActivityOpenEnterAnim(animStyle);
-                case R.anim.activity_open_exit:
-                    return animStyle == 4
-                            ? ActivityAnimations.getOpenExit()
-                            : getActivityOpenExitAnim(animStyle);
-                case R.anim.activity_close_enter:
-                    return animStyle == 4
-                            ? ActivityAnimations.getCloseEnter()
-                            : getActivityCloseEnterAnim(animStyle);
-                case R.anim.activity_close_exit:
-                    return animStyle == 4
-                            ? ActivityAnimations.getCloseExit()
-                            : getActivityCloseExitAnim(animStyle);
                 case R.anim.task_open_enter:
-                    if (animStyle == 4) {
-                        return ActivityAnimations.getOpenEnter();
-                    }
-                    break;
+                    return ActivityAnimations.getOpenEnter();
+                case R.anim.activity_open_exit:
                 case R.anim.task_open_exit:
-                    if (animStyle == 4) {
-                        return ActivityAnimations.getOpenExit();
-                    }
-                    break;
-                case R.anim.activity_translucent_open_enter:
-                    if (animStyle == 4) {
-                        return ActivityAnimations.getTranslucentOpenEnter();
-                    }
-                    break;
-                case R.anim.activity_translucent_close_exit:
-                    if (animStyle == 4) {
-                        return ActivityAnimations.getTranslucentCloseExit();
-                    }
-                    break;
+                    return ActivityAnimations.getOpenExit();
+                case R.anim.activity_close_enter:
+                    return ActivityAnimations.getCloseEnter();
+                case R.anim.activity_close_exit:
+                    return ActivityAnimations.getCloseExit();
                 case R.anim.app_starting_exit:
-                    if (animStyle == 4) {
-                        return ActivityAnimations.getAppStartingExit();
-                    }
-                    break;
+                    return ActivityAnimations.getAppStartingExit();
             }
         }
-        return loadAnimationFromXml(context, id);
-    }
-    
-    private static void clearCachedAnimations() {
-        activityOpenEnterAnim = null;
-        activityOpenExitAnim = null;
-        activityCloseEnterAnim = null;
-        activityCloseExitAnim = null;
-    }
 
-    private static Animation getActivityOpenEnterAnim(int animStyle) {
-        if (activityOpenEnterAnim == null) {
-            activityOpenEnterAnim = createActivityOpenEnterAnim(animStyle);
-        }
-        return activityOpenEnterAnim;
-    }
-
-    private static Animation getActivityOpenExitAnim(int animStyle) {
-        if (activityOpenExitAnim == null) {
-            activityOpenExitAnim = createActivityOpenExitAnim(animStyle);
-        }
-        return activityOpenExitAnim;
-    }
-
-    private static Animation getActivityCloseEnterAnim(int animStyle) {
-        if (activityCloseEnterAnim == null) {
-            activityCloseEnterAnim = createActivityCloseEnterAnim(animStyle);
-        }
-        return activityCloseEnterAnim;
-    }
-
-    private static Animation getActivityCloseExitAnim(int animStyle) {
-        if (activityCloseExitAnim == null) {
-            activityCloseExitAnim = createActivityCloseExitAnim(animStyle);
-        }
-        return activityCloseExitAnim;
-    }
-
-    private static Animation createActivityOpenEnterAnim(int animStyle) {
-        if (animStyle <= 2) {
-            AnimationSet animationSet = new AnimationSet(false);
-            animationSet.setZAdjustment(Animation.ZORDER_TOP);
-            TranslateAnimation translateAnimation = new TranslateAnimation(
-                    Animation.RELATIVE_TO_SELF, 0.0f,
-                    Animation.RELATIVE_TO_SELF, 0.0f,
-                    Animation.RELATIVE_TO_SELF, 1f,
-                    Animation.RELATIVE_TO_SELF, 0.0f);
-            translateAnimation.setInterpolator(fastOutSlowIn());
-            translateAnimation.setDuration(425L);
-            animationSet.addAnimation(translateAnimation);
-            if (animStyle == 2) {
-                ScaleAnimation scaleAnimation = new ScaleAnimation(
-                        0f, 1f,
-                        0f, 1f,
-                        Animation.RELATIVE_TO_SELF, 0.5f,
-                        Animation.RELATIVE_TO_SELF, 0.5f);
-                scaleAnimation.setDuration(425L);
-                scaleAnimation.setInterpolator(fastOutSlowIn());
-                animationSet.addAnimation(scaleAnimation);
-            }
-            return animationSet;
-        } else if (animStyle == 3) {
-            // Slide in from right
-            AnimationSet animationSet = new AnimationSet(false);
-            TranslateAnimation slideIn = new TranslateAnimation(
-                Animation.RELATIVE_TO_SELF, 1.0f, // fromXDelta (start off-screen right)
-                Animation.RELATIVE_TO_SELF, 0.0f, // toXDelta (end at position)
-                Animation.RELATIVE_TO_SELF, 0.0f, // fromYDelta
-                Animation.RELATIVE_TO_SELF, 0.0f  // toYDelta
-            );
-            slideIn.setDuration(600L);
-            slideIn.setInterpolator(new OutExpoInterpolator());
-            animationSet.addAnimation(slideIn);
-            return animationSet;
-        }
-        return null;
-    }
-
-    private static Animation createActivityOpenExitAnim(int animStyle) {
-        if (animStyle <= 2) {
-            AnimationSet animationSet = new AnimationSet(false);
-            TranslateAnimation translateAnimation = new TranslateAnimation(
-                    Animation.RELATIVE_TO_SELF, 0.0f,
-                    Animation.RELATIVE_TO_SELF, 0.0f,
-                    Animation.RELATIVE_TO_SELF, 0.0f,
-                    Animation.RELATIVE_TO_SELF, -0.019999981f);
-            translateAnimation.setDuration(425L);
-            translateAnimation.setInterpolator(fastOutSlowIn());
-            animationSet.addAnimation(translateAnimation);
-            AlphaAnimation alphaAnimation = new AlphaAnimation(1.0f, 0.9f);
-            alphaAnimation.setDuration(117L);
-            alphaAnimation.setInterpolator(new LinearInterpolator());
-            animationSet.addAnimation(alphaAnimation);
-            return animationSet;
-        } else if (animStyle == 3) {
-            // Slide current page left by 30% width, stay opaque
-            AnimationSet animationSet = new AnimationSet(false);
-            TranslateAnimation slideLeft = new TranslateAnimation(
-                Animation.RELATIVE_TO_SELF, 0.0f,     // fromXDelta (start)
-                Animation.RELATIVE_TO_SELF, -0.30f,   // toXDelta (move left 30%)
-                Animation.RELATIVE_TO_SELF, 0.0f,
-                Animation.RELATIVE_TO_SELF, 0.0f
-            );
-            slideLeft.setDuration(600L);
-            slideLeft.setInterpolator(new OutExpoInterpolator());
-            animationSet.addAnimation(slideLeft);
-            return animationSet;
-        }
-        return null;
-    }
-
-    private static Animation createActivityCloseEnterAnim(int animStyle) {
-        if (animStyle <= 2) {
-            AnimationSet animationSet = new AnimationSet(false);
-            TranslateAnimation translateAnimation = new TranslateAnimation(
-                    Animation.RELATIVE_TO_SELF, 0.0f,
-                    Animation.RELATIVE_TO_SELF, 0.0f,
-                    Animation.RELATIVE_TO_SELF, -0.019999981f,
-                    Animation.RELATIVE_TO_SELF, 0.0f);
-            translateAnimation.setDuration(425L);
-            translateAnimation.setInterpolator(fastOutSlowIn());
-            animationSet.addAnimation(translateAnimation);
-            AlphaAnimation alphaAnimation = new AlphaAnimation(0.9f, 1.0f);
-            alphaAnimation.setDuration(425L);
-            alphaAnimation.setInterpolator(activityCloseDim());
-            animationSet.addAnimation(alphaAnimation);
-            return animationSet;
-        } else if (animStyle == 3) {
-            // Previous page slides in from the left
-            AnimationSet animationSet = new AnimationSet(false);
-            TranslateAnimation slideIn = new TranslateAnimation(
-                Animation.RELATIVE_TO_SELF, -0.30f,   // fromXDelta (30% left, matching open exit)
-                Animation.RELATIVE_TO_SELF, 0.0f,     // toXDelta (to position)
-                Animation.RELATIVE_TO_SELF, 0.0f,
-                Animation.RELATIVE_TO_SELF, 0.0f
-            );
-            slideIn.setDuration(600L);
-            slideIn.setInterpolator(new OutExpoInterpolator());
-            animationSet.addAnimation(slideIn);
-            return animationSet;
-        }
-        return null;
-    }
-
-    private static Animation createActivityCloseExitAnim(int animStyle) {
-        if (animStyle <= 2) {
-            AnimationSet animationSet = new AnimationSet(false);
-            TranslateAnimation translateAnimation = new TranslateAnimation(
-                    Animation.RELATIVE_TO_SELF, 0.0f,
-                    Animation.RELATIVE_TO_SELF, 0.0f,
-                    Animation.RELATIVE_TO_SELF, 0.0f,
-                    Animation.RELATIVE_TO_SELF, 1f);
-            translateAnimation.setDuration(425L);
-            translateAnimation.setInterpolator(fastOutSlowIn());
-            animationSet.addAnimation(translateAnimation);
-            ClipRectAnimationF clipRectAnimationF = new ClipRectAnimationF(
-                    0.0f, 0.0f, 1.0f, 1.0f, 0.0f, 0.959f, 1.0f, 1.0f);
-            clipRectAnimationF.setDuration(425L);
-            clipRectAnimationF.setInterpolator(fastOutExtraSlowIn());
-            animationSet.addAnimation(clipRectAnimationF);
-            return animationSet;
-        } else if (animStyle == 3) {
-            // Current page slides out to the right
-            AnimationSet animationSet = new AnimationSet(false);
-            TranslateAnimation slideOut = new TranslateAnimation(
-                Animation.RELATIVE_TO_SELF, 0.0f,     // fromXDelta
-                Animation.RELATIVE_TO_SELF, 1.0f,     // toXDelta (fully right)
-                Animation.RELATIVE_TO_SELF, 0.0f,
-                Animation.RELATIVE_TO_SELF, 0.0f
-            );
-            slideOut.setDuration(600L);
-            slideOut.setInterpolator(new OutExpoInterpolator());
-            animationSet.addAnimation(slideOut);
-            return animationSet;
-        }
-        return null;
-    }
-
-    private static Interpolator fastOutSlowIn() {
-        return new PathInterpolator(0.4F, 0.0F, 0.2F, 1.0F);
-    }
-
-    private static Interpolator activityCloseDim() {
-        return new PathInterpolator(0.33f, 0.0f, 1.0f, 1.0f);
-    }
-
-    private static Interpolator fastOutExtraSlowIn() {
-        return new PathInterpolator(PathParser.createPathFromPathData("M 0,0 C 0.05, 0, 0.133333, 0.06, 0.166666, 0.4 C 0.208333, 0.82, 0.25, 1, 1, 1"));
-    }
-
-    private static Animation loadAnimationFromXml(Context context, int id) {
         XmlResourceParser parser = null;
         try {
             parser = context.getResources().getAnimation(id);
             return createAnimationFromXml(context, parser);
-        } catch (XmlPullParserException | IOException ex) {
-            throw new NotFoundException(
-                    "Can't load animation resource ID #0x" + Integer.toHexString(id), ex);
+        } catch (XmlPullParserException ex) {
+            NotFoundException rnf = new NotFoundException("Can't load animation resource ID #0x" +
+                    Integer.toHexString(id));
+            rnf.initCause(ex);
+            throw rnf;
+        } catch (IOException ex) {
+            NotFoundException rnf = new NotFoundException("Can't load animation resource ID #0x" +
+                    Integer.toHexString(id));
+            rnf.initCause(ex);
+            throw rnf;
         } finally {
             if (parser != null) parser.close();
         }
@@ -794,106 +542,130 @@ public class AnimationUtils {
     /** @hide */
     public static final class ActivityAnimations {
 
-        private static final float DAMPING_RATIO = 0.85f;
-        private static final float STIFFNESS = 850f;
+        private static Animation sOpenEnter;
+        private static Animation sOpenExit;
+        private static Animation sCloseEnter;
+        private static Animation sCloseExit;
+        private static Animation sAppStartingExit;
+
+        private static SpringInterpolator sSpatialSpec;
+        private static SpringInterpolator sEffectsSpec;
+
         private static final float DISTANCE = 0.333f;
         private static final long APP_STARTING_EXIT_DURATION_MS = 150L;
 
         private ActivityAnimations() {}
 
-        private static final class SpringSpecs {
-            private static final SpringInterpolator SPATIAL =
-                    new SpringInterpolator(DAMPING_RATIO, STIFFNESS);
-
-            private SpringSpecs() {}
-        }
-
         /** @hide */
         public static synchronized void preload() {
-            SpringSpecs.SPATIAL.getDurationMs();
+            if (sOpenEnter != null) {
+                return;
+            }
+            sSpatialSpec = new SpringInterpolator(0.8f, 380f);
+            sEffectsSpec = new SpringInterpolator(1.0f, 3800f);
+            sOpenEnter = new ActivityAnimFactory()
+                    .fromX(1.0f)
+                    .toX(0.0f)
+                    .build();
+            sOpenExit = new ActivityAnimFactory()
+                    .fromX(0.0f)
+                    .toX(-DISTANCE)
+                    .build();
+            sCloseEnter = new ActivityAnimFactory()
+                        .fromX(-DISTANCE)
+                        .toX(0.0f)
+                        .build();
+            sCloseExit = new ActivityAnimFactory()
+                        .fromX(0.0f)
+                        .toX(1.0f)
+                        .build();
+            sAppStartingExit = buildAppStartingExit();
         }
 
-        private static Animation buildTransition(float fromX, float toX, float fromY, float toY,
-                int zAdjustment) {
-            final SpringInterpolator spatialSpec = SpringSpecs.SPATIAL;
-            TranslateAnimation slide = new TranslateAnimation(
-                    Animation.RELATIVE_TO_SELF, fromX,
-                    Animation.RELATIVE_TO_SELF, toX,
-                    Animation.RELATIVE_TO_SELF, fromY,
-                    Animation.RELATIVE_TO_SELF, toY
-            );
-            slide.setDuration(spatialSpec.getDurationMs());
-            slide.setInterpolator(spatialSpec);
-            slide.setFillEnabled(true);
-            slide.setFillBefore(true);
-            slide.setFillAfter(true);
-            slide.setZAdjustment(zAdjustment);
-            slide.setHasRoundedCorners(true);
-            return slide;
+        private static Animation buildAppStartingExit() {
+            Animation animation = new AlphaAnimation(1.0f, 0.0f);
+            animation.setDuration(APP_STARTING_EXIT_DURATION_MS);
+            animation.setInterpolator(new LinearInterpolator());
+            return animation;
+        }
+
+        private static class ActivityAnimFactory {
+            private float fromX = 0f, toX = 0f;
+
+            public ActivityAnimFactory fromX(float ratio) {
+                this.fromX = ratio;
+                return this;
+            }
+
+            public ActivityAnimFactory toX(float ratio) {
+                this.toX = ratio;
+                return this;
+            }
+
+            public Animation build() {
+                AnimationSet animationSet = new AnimationSet(false);
+                TranslateAnimation slide = new TranslateAnimation(
+                        Animation.RELATIVE_TO_SELF, fromX,
+                        Animation.RELATIVE_TO_SELF, toX,
+                        Animation.RELATIVE_TO_SELF, 0f,
+                        Animation.RELATIVE_TO_SELF, 0f
+                );
+                slide.setDuration(sSpatialSpec.getDurationMs());
+                slide.setInterpolator(sSpatialSpec);
+                animationSet.addAnimation(slide);
+                return animationSet;
+            }
         }
 
         /** @hide */
         public static Animation getOpenEnter() {
-            return buildTransition(1.0f, 0.0f, 0.0f, 0.0f, Animation.ZORDER_TOP);
+            if (sOpenEnter == null) {
+                preload();
+            }
+            return sOpenEnter;
         }
 
         /** @hide */
         public static Animation getOpenExit() {
-            return buildTransition(0.0f, -DISTANCE, 0.0f, 0.0f, Animation.ZORDER_NORMAL);
+            if (sOpenExit == null) {
+                preload();
+            }
+            return sOpenExit;
         }
 
         /** @hide */
         public static Animation getCloseEnter() {
-            return buildTransition(-DISTANCE, 0.0f, 0.0f, 0.0f, Animation.ZORDER_NORMAL);
+            if (sCloseEnter == null) {
+                preload();
+            }
+            return sCloseEnter;
         }
 
         /** @hide */
         public static Animation getCloseExit() {
-            return buildTransition(0.0f, 1.0f, 0.0f, 0.0f, Animation.ZORDER_TOP);
-        }
-
-        /** @hide */
-        public static Animation getTranslucentOpenEnter() {
-            return buildTransition(0.0f, 0.0f, 1.0f, 0.0f, Animation.ZORDER_TOP);
-        }
-
-        /** @hide */
-        public static Animation getTranslucentCloseExit() {
-            return buildTransition(0.0f, 0.0f, 0.0f, 1.0f, Animation.ZORDER_TOP);
+            if (sCloseExit == null) {
+                preload();
+            }
+            return sCloseExit;
         }
 
         /** @hide */
         public static Animation getAppStartingExit() {
-            Animation animation = new AlphaAnimation(1.0f, 0.0f);
-            animation.setDuration(APP_STARTING_EXIT_DURATION_MS);
-            animation.setInterpolator(new LinearInterpolator());
-            animation.setFillEnabled(true);
-            animation.setFillBefore(true);
-            animation.setFillAfter(true);
-            animation.setZAdjustment(Animation.ZORDER_TOP);
-            return animation;
+            if (sAppStartingExit == null) {
+                preload();
+            }
+            return sAppStartingExit;
         }
     }
 
     /** @hide */
     public static final class SpringInterpolator implements Interpolator {
-        private static final int LUT_SIZE = 256;
-
         private final float mDampingRatio;
         private final float mOmega0;
         private final long mDurationMs;
         private final float mDurationSec;
         private final float mEndOutput;
         private final float mEndGap;
-
-        private final float mGamma;
-        private final float mOmegaD;
-        private final float mSinCoeff;
-        private final float mR1;
-        private final float mR2;
-        private final float mInvR2MinusR1;
-
-        private final float[] mLut = new float[LUT_SIZE + 1];
 
         public SpringInterpolator(float dampingRatio, float stiffness) {
             mDampingRatio = dampingRatio;
@@ -906,38 +678,8 @@ public class AnimationUtils {
             }
             mDurationMs = Math.max(50L, (long) (settleSec * 1000f));
             mDurationSec = mDurationMs / 1000f;
-
-            mGamma = dampingRatio * mOmega0;
-            if (dampingRatio < 1.0f) {
-                mOmegaD = mOmega0 * (float) Math.sqrt(1.0f - dampingRatio * dampingRatio);
-                mSinCoeff = mGamma / mOmegaD;
-                mR1 = 0f;
-                mR2 = 0f;
-                mInvR2MinusR1 = 0f;
-            } else if (dampingRatio > 1.0f) {
-                final float d = (float) Math.sqrt(dampingRatio * dampingRatio - 1.0f);
-                mR1 = -mOmega0 * (dampingRatio - d);
-                mR2 = -mOmega0 * (dampingRatio + d);
-                mInvR2MinusR1 = 1.0f / (mR2 - mR1);
-                mOmegaD = 0f;
-                mSinCoeff = 0f;
-            } else {
-                mOmegaD = 0f;
-                mSinCoeff = 0f;
-                mR1 = 0f;
-                mR2 = 0f;
-                mInvR2MinusR1 = 0f;
-            }
-
             mEndOutput = rawSpring(mDurationSec);
             mEndGap = 1.0f - mEndOutput;
-
-            for (int i = 0; i <= LUT_SIZE; i++) {
-                final float t = (float) i / LUT_SIZE;
-                mLut[i] = rawSpring(t * mDurationSec) + mEndGap * t;
-            }
-            mLut[0] = 0.0f;
-            mLut[LUT_SIZE] = 1.0f;
         }
 
         public long getDurationMs() {
@@ -945,31 +687,28 @@ public class AnimationUtils {
         }
 
         private float rawSpring(float t) {
-            if (mDampingRatio < 1.0f) {
-                final float env = (float) Math.exp(-mGamma * t);
-                return 1.0f - env * ((float) Math.cos(mOmegaD * t)
-                        + mSinCoeff * (float) Math.sin(mOmegaD * t));
-            } else if (mDampingRatio > 1.0f) {
-                return 1.0f - (mR2 * (float) Math.exp(mR1 * t)
-                        - mR1 * (float) Math.exp(mR2 * t)) * mInvR2MinusR1;
+            final float zeta = mDampingRatio;
+            final float w0 = mOmega0;
+            if (zeta < 1.0f) {
+                final float wd = w0 * (float) Math.sqrt(1.0f - zeta * zeta);
+                final float env = (float) Math.exp(-zeta * w0 * t);
+                return 1.0f - env * ((float) Math.cos(wd * t)
+                        + (zeta * w0 / wd) * (float) Math.sin(wd * t));
+            } else if (zeta > 1.0f) {
+                final float d = (float) Math.sqrt(zeta * zeta - 1.0f);
+                final float r1 = -w0 * (zeta - d);
+                final float r2 = -w0 * (zeta + d);
+                return 1.0f - (r2 * (float) Math.exp(r1 * t)
+                        - r1 * (float) Math.exp(r2 * t)) / (r2 - r1);
             } else {
-                final float env = (float) Math.exp(-mGamma * t);
-                return 1.0f - env * (1.0f + mOmega0 * t);
+                final float env = (float) Math.exp(-w0 * t);
+                return 1.0f - env * (1.0f + w0 * t);
             }
         }
 
         @Override
         public float getInterpolation(float input) {
-            if (input <= 0.0f) {
-                return 0.0f;
-            }
-            if (input >= 1.0f) {
-                return 1.0f;
-            }
-            final float position = input * LUT_SIZE;
-            final int index = (int) position;
-            final float fraction = position - index;
-            return mLut[index] + fraction * (mLut[index + 1] - mLut[index]);
+            return rawSpring(input * mDurationSec) + mEndGap * input;
         }
     }
 }
